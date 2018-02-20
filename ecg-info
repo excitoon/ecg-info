@@ -1,0 +1,97 @@
+#!/usr/bin/env python3
+
+import argparse
+import os
+import progress.bar
+import time
+
+import binary
+
+
+parser = argparse.ArgumentParser()
+parser.add_argument('path', type=str, help='path to process')
+args = parser.parse_args()
+
+def format_date(eight):
+    return '%s-%s-%s' % (eight[0:4], eight[4:6], eight[6:8])
+
+def format_time(fourteen):
+    return '%s-%s-%s %s:%s:%s' % (fourteen[0:4], fourteen[4:6], fourteen[6:8], fourteen[8:10], fourteen[10:12], fourteen[12:14])
+
+def get_time(fourteen):
+    return time.mktime((int(fourteen[0:4]), int(fourteen[4:6]), int(fourteen[6:8]), int(fourteen[8:10]), int(fourteen[10:12]), int(fourteen[12:14]), -1, -1, -1))
+
+def format_sex(sex):
+    return 'male' if sex == 0x31 else 'female' if sex == 0x32 else 'none'
+
+raw = open(args.path, 'rb').read()
+data = binary.Pipe(raw[:0x200])
+assert data.read_word() == 0x9002
+data.read_word()
+
+pat_block_offset = data.read_dword()
+pat_block_size = data.read_dword()
+rec_block_offset = data.read_dword()
+rec_block_size = data.read_dword()
+ecg_block_offset = data.read_dword()
+ecg_block_size = data.read_dword()
+
+file_version = binary.read_dword(raw, 0x1fc) & 0xffff
+
+pat_block = binary.read_block(raw, pat_block_offset, pat_block_size)
+rec_block = binary.read_block(raw, rec_block_offset, rec_block_size)
+ecg_block = binary.read_block(raw, ecg_block_offset, ecg_block_size)
+
+start_date = format_date(binary.read_block(pat_block, 0x115, 8).decode('ascii'))
+print('Start date: %s' % (start_date))
+
+patient_name = binary.read_null_terminated(pat_block, 0x11e).decode('cp1251')
+print('Patient name: %s' % (patient_name))
+
+patient_birth_date = format_date(binary.read_block(pat_block, 0xdc, 8).decode('ascii'))
+print('Patient birth date: %s' % (patient_birth_date))
+
+patient_age = binary.read_word(pat_block, 0xe4)
+print('Patient age: %d' % (patient_age))
+patient_sex = binary.read_byte(pat_block, 0xe7)
+print('Patient sex: %s' % (format_sex(patient_sex)))
+
+start = binary.read_block(rec_block, 0, 14).decode('ascii')
+start_time = format_time(start)
+start_timestamp = get_time(start)
+end_time = format_time(binary.read_block(rec_block, 0x30, 14).decode('ascii'))
+
+print('Start time: %s' % (start_time))
+print('End time: %s' % (end_time))
+
+ecg = binary.Pipe(ecg_block)
+signature = ecg.read_word()
+assert signature & 0x8000 == 0x8000
+part_duration = ecg.read_word()
+channels = ecg.read_word()
+frame_rate = ecg.read_word()
+max_value = ecg.read_word()
+part_samples = frame_rate*part_duration
+
+bar = progress.bar.FillingSquaresBar(max=len(ecg_block), width=60, suffix='%(percent).1f%% - %(eta_td)s')
+output = open('%s.tsv' % (os.path.splitext(args.path)[0]), 'w')
+part_index = 0
+while not ecg.eof():
+    size = ecg.read_word()
+    assert size >= 900 and size <= 23000
+    part = ecg.read_block(size-2)
+    part_data = binary.Pipe(part)
+    part_data.read_word()
+    blocks = []
+    while not part_data.eof():
+        block_size = part_data.read_word()
+        block = part_data.read_block(block_size-2)
+        blocks.append(binary.DeltaReader(block, max_value).read(part_samples))
+    for i in range(part_samples):
+        t = start_timestamp + (part_index*part_samples + i)/frame_rate
+        output.write('%lf\t%s\n' % (t, '\t'.join([str(x[i]) for x in blocks])))
+    assert len(blocks) == channels
+    bar.goto(ecg.offset)
+    part_index += 1
+output.close()
+bar.finish()
