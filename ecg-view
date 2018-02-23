@@ -1,0 +1,42 @@
+#!/usr/bin/env python3
+
+import argparse
+import datetime
+
+import matplotlib.pyplot
+
+import tsv
+
+
+parser = argparse.ArgumentParser()
+parser.add_argument('path', type=str, help='path to process')
+parser.add_argument('start-time', type=str, help='start time in [d:]hh:mm:ss format')
+parser.add_argument('duration', type=int, default=60, nargs='?', help='duration in seconds')
+args = parser.parse_args()
+
+first_time = tsv.get_first_time(args.path)
+start_time_parts = list(map(int, args.start_time.split(':')))
+if len(start_time_parts) == 3:
+    start_time_parts = [0, *start_time_parts]
+assert len(start_time_parts) == 4
+first_date = datetime.date.fromtimestamp(first_time)
+time_shift = datetime.time(hour=start_time_parts[1], minute=start_time_parts[2], second=start_time_parts[3])
+date_shift = datetime.timedelta(days=start_time_parts[0])
+start_time = (datetime.datetime.combine(first_date, time_shift) + date_shift).timestamp()
+
+end_time = start_time + args.duration
+signals = tsv.read(args.path, start_time=start_time, end_time=end_time)
+
+signals[0] = list(map(lambda x: x-start_time, signals[0]))
+graphs = []
+legends = []
+for i in range(1, len(signals)):
+    graphs.extend([signals[0], signals[i]])
+    legends.append('Channel %d' % (i))
+
+matplotlib.pyplot.figure(num=args.path)
+matplotlib.pyplot.plot(*graphs)
+matplotlib.pyplot.legend(legends, loc='best')
+matplotlib.pyplot.xlabel('t, s')
+matplotlib.pyplot.ylabel('U, V')
+matplotlib.pyplot.show()
