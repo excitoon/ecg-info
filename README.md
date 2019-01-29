@@ -1,26 +1,40 @@
 Tools for dumping and analyzing ECG data.
 
-### Usage
+# `schiller-dump`
 
-Produce TSV file with ECG data:
+Produces TSV file with Schiller ECG data.
+
+## Usage
 
 ```
-ecg-dump filename.raw
+schiller-dump filename.raw
 ```
 
-View TSV file:
+# `myocard-dump`
+
+Produces TSV file with Myocard ECG data.
+
+## Usage
+
+```
+myocard-dump data-path
+```
+
+# `ecg-view`
+
+View TSV file (starting at `d:hh:mm:ss`):
 
 ```
 ecg-view filename.tsv [d:]hh:mm:ss [duration]
 ```
 
-### Dependencies
+## Dependencies
 
 ```
 pip3 install matplotlib
-pip3 install progress
 ```
 
-### Supported formats
+# Supported formats
 
 - Schiller MT-101
+- МИОКАРД-ХОЛТЕР 2

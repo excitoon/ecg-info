@@ -2,8 +2,12 @@
 
 import argparse
 import os
-import progress.bar
 import time
+
+try:
+    import progress.bar
+except:
+    progress = None
 
 import binary
 
@@ -73,7 +77,8 @@ frame_rate = ecg.read_word()
 max_value = ecg.read_word()
 part_samples = frame_rate*part_duration
 
-bar = progress.bar.FillingSquaresBar(max=len(ecg_block), width=60, suffix='%(percent).1f%% - %(eta_td)s')
+if not progress is None:
+    bar = progress.bar.FillingSquaresBar(max=len(ecg_block), width=60, suffix='%(percent).1f%% - %(eta_td)s')
 output = open('%s.tsv' % (os.path.splitext(args.path)[0]), 'w')
 part_index = 0
 while not ecg.eof():
@@ -91,7 +96,9 @@ while not ecg.eof():
         t = start_timestamp + (part_index*part_samples + i)/frame_rate
         output.write('%lf\t%s\n' % (t, '\t'.join([str(x[i]) for x in blocks])))
     assert len(blocks) == channels
-    bar.goto(ecg.offset)
+    if not progress is None:
+        bar.goto(ecg.offset)
     part_index += 1
 output.close()
-bar.finish()
+if not progress is None:
+    bar.finish()

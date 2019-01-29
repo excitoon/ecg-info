@@ -15,7 +15,7 @@ parser.add_argument('duration', type=int, default=60, nargs='?', help='duration 
 args = parser.parse_args()
 
 first_time = tsv.get_first_time(args.path)
-start_time_parts = list(map(int, args.start_time.split(':')))
+start_time_parts = list(map(int, getattr(args, 'start-time').split(':')))
 if len(start_time_parts) == 3:
     start_time_parts = [0, *start_time_parts]
 assert len(start_time_parts) == 4
@@ -27,11 +27,21 @@ start_time = (datetime.datetime.combine(first_date, time_shift) + date_shift).ti
 end_time = start_time + args.duration
 signals = tsv.read(args.path, start_time=start_time, end_time=end_time)
 
+shifts = [0]*len(signals)
+top = 0
+no_data = True
+for i in range(1, len(signals)):
+    if len(signals[i]) > 0:
+        minimum, maximum = min(signals[i]), max(signals[i])
+        shifts[i] = top - maximum
+        top -= maximum - minimum
+        no_data = False
+
 signals[0] = list(map(lambda x: x-start_time, signals[0]))
 graphs = []
 legends = []
 for i in range(1, len(signals)):
-    graphs.extend([signals[0], signals[i]])
+    graphs.extend([signals[0], [ shifts[i] + x for x in signals[i] ]])
     legends.append('Channel %d' % (i))
 
 matplotlib.pyplot.figure(num=args.path)
@@ -39,4 +49,8 @@ matplotlib.pyplot.plot(*graphs)
 matplotlib.pyplot.legend(legends, loc='best')
 matplotlib.pyplot.xlabel('t, s')
 matplotlib.pyplot.ylabel('U, V')
+
+if no_data:
+    matplotlib.pyplot.text(0.5, 0.5, 'No data', horizontalalignment='center', verticalalignment='center', transform=matplotlib.pyplot.gca().transAxes)
+
 matplotlib.pyplot.show()

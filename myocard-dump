@@ -1,0 +1,124 @@
+#!/usr/bin/env python3
+
+import argparse
+import configparser
+import datetime
+import os
+import re
+import time
+
+try:
+    import progress.bar
+except:
+    progress = None
+
+parser = argparse.ArgumentParser()
+parser.add_argument('path', type=str, help='path to process')
+args = parser.parse_args()
+
+def format_date(twelve):
+    return '20%s-%s-%s' % (twelve[4:6], twelve[2:4], twelve[0:2])
+
+def format_time(twelve):
+    return '20%s-%s-%s %s:%s:%s' % (twelve[4:6], twelve[2:4], twelve[0:2], twelve[6:8], twelve[8:10], twelve[10:12])
+
+def get_time(twelve):
+    return time.mktime((2000+int(twelve[4:6]), int(twelve[2:4]), int(twelve[0:2]), int(twelve[6:8]), int(twelve[8:10]), int(twelve[10:12]), -1, -1, -1))
+
+def format_sex(sex):
+    return 'male' if sex == 1 else 'female'
+
+holter_path = os.path.join(args.path, 'hol.dta')
+patient_path = os.path.join(args.path, 'Pacient.dta')
+data1_path = os.path.join(args.path, 'Tmfn.dta')
+data2_path = os.path.join(args.path, 'Tmhn.dta')
+
+for path in (holter_path, patient_path, data1_path, data2_path):
+    assert os.path.isfile(path)
+
+size1 = os.path.getsize(data1_path)
+size2 = os.path.getsize(data2_path)
+assert size1 == size2
+block_size = 5625
+block_duration = 30
+assert size1 % block_size == 0
+blocks_count = size1 // block_size
+
+patient = configparser.ConfigParser()
+patient.read(patient_path, encoding='cp1251')
+
+db_path = patient['DB']['DB_Path']
+assert len(db_path) == 12 and db_path.isdigit()
+day, month, year, hour, minute, second = re.findall('..', db_path)
+signals_count = int(patient['Common']['LeadsCount'])
+assert blocks_count % signals_count == 0
+
+assert int(patient['Common']['HeartPacemakerType']) == 0
+assert int(patient['Common']['RegistratorType']) == 11
+
+holter = open(holter_path, 'rb').read()
+assert int(hour) == holter[0]
+assert int(minute) == holter[1]
+
+start_date = format_date(db_path)
+print('Start date: %s' % (start_date))
+
+patient_name = patient['Police']['Fam']
+print('Patient name: %s' % (patient_name))
+
+patient_birth_date = patient['Police']['BirthDate']
+print('Patient birth date: %s' % (patient_birth_date))
+
+patient_age = int(patient['Common']['Age'])
+print('Patient age: %d' % (patient_age))
+patient_sex = int(patient['Police']['Gender'])
+print('Patient sex: %s' % (format_sex(patient_sex)))
+
+start = db_path
+start_time = format_time(start)
+start_timestamp = get_time(start)
+end_timestamp = start_timestamp + block_duration * blocks_count // signals_count
+end_time = datetime.datetime.fromtimestamp(end_timestamp).strftime('%Y-%m-%d %H:%M:%S')
+
+print('Start time: %s' % (start_time))
+print('End time: %s' % (end_time))
+
+data = ( open(data1_path, 'rb'), open(data2_path, 'rb') )
+outputs = ( open('%s_f.tsv' % (args.path.rstrip('\\/')), 'w'), open('%s_h.tsv' % (args.path.rstrip('\\/')), 'w') )
+frame_rate = 250
+
+last_values = ([0]*signals_count, [0]*signals_count)
+g = (0.18, 0.21, 0.24, 0.28, 0.33, 0.39, 0.46, 0.54, 0.63, 0.73, 0.84, 0.96, 1.09, 1.23, 1.39, 1.60)
+
+if not progress is None:
+    bar = progress.bar.FillingSquaresBar(max=blocks_count // signals_count, width=60, suffix='%(percent).1f%% - %(eta_td)s')
+for f in range(blocks_count // signals_count):
+    for data_file, output, last_value in zip(data, outputs, last_values):
+        part = []
+        for s in range(signals_count):
+            part.append([])
+            block = data_file.read(block_size)
+            for i in range(block_size // 3):
+                control = block[i*3]
+                values = ((block[i*3+1] & 0xf0) >> 4, block[i*3+1] & 0xf, (block[i*3+2] & 0xf0) >> 4, block[i*3+2] & 0xf)
+                ascend = (control & 0xf0) >> 4
+                sign = control & 0x0f
+                for l, value in enumerate(values):
+                    sign_value = -1 if (sign >> (3-l)) & 1 > 0 else 1
+                    if (ascend >> (3-l)) & 1 > 0:
+                        dv = sign_value*g[value]
+                    else:
+                        dv = sign_value*0.01*value
+                    last_value[s] += dv
+                    part[s].append(0.001*last_value[s])
+        for i in range(block_size // 3 * 4):
+            t = start_timestamp + f*block_duration + block_duration*i/(block_size // 3 * 4)
+            output.write('%lf\t%s\n' % (t, '\t'.join([str(x[i]) for x in part])))
+    if not progress is None:
+        bar.next()
+
+for output in outputs:
+    output.close()
+
+if not progress is None:
+    bar.finish()
