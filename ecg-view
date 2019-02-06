@@ -2,6 +2,7 @@
 
 import argparse
 import datetime
+import time
 
 import matplotlib.pyplot
 
@@ -49,6 +50,7 @@ matplotlib.pyplot.plot(*graphs)
 matplotlib.pyplot.legend(legends, loc='best')
 matplotlib.pyplot.xlabel('t, s')
 matplotlib.pyplot.ylabel('U, V')
+matplotlib.pyplot.title('{} - {}'.format(time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(start_time)), time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(end_time))))
 
 if no_data:
     matplotlib.pyplot.text(0.5, 0.5, 'No data', horizontalalignment='center', verticalalignment='center', transform=matplotlib.pyplot.gca().transAxes)
